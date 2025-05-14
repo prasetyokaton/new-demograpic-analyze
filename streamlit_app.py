@@ -176,6 +176,8 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
         if col not in df.columns:
             df[col] = ""  # Fill missing columns with empty strings
 
+    if 'Type' not in df.columns:
+        df['Type'] = ''
 
     # Hindari warning dtype saat assign string
     df['Location'] = df['Location'].astype('object')
@@ -327,7 +329,12 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
     valid_channels = ['Twitter', 'Tiktok', 'Instagram', 'Facebook', 'Youtube']
 
     if apply_age:
-        df_to_predict = df[df['Channel'].isin(valid_channels) & pd.isna(df['Age'])]
+        df_to_predict = df[
+            (df['Channel'] == 'Twitter') &
+            (df.get('Type', '') == 'Tweet') &
+            pd.isna(df['Age'])
+        ]
+
         usage_tracker = {'prompt_tokens': 0, 'completion_tokens': 0}
         # Apply the prediction function to the rows that need prediction
         df_to_predict['Predicted_Age'] = df_to_predict.apply(predict_age, axis=1, usage_tracker=usage_tracker)
