@@ -399,6 +399,12 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
 
     # Display before-after summary
     st.write("### Data Completion Summary:")
+    
+    # Show total number of data rows (excluding header)
+    total_data_rows = len(df)
+    st.write(f"Total data: {total_data_rows} data")
+
+
     st.write(f"Gender before: {initial_gender_filled} data, and after this method: {final_gender_filled} data")
     st.write(f"Age before: {initial_age_filled} data, and after this method: {final_age_filled} data")
     st.write(
