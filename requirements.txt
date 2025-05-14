@@ -1,2 +1,8 @@
 streamlit
+joblib
+scikit-learn
+openpyxl
+xlsxwriter
+numpy
 pandas
+openai==0.28
