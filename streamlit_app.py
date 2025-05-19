@@ -19,31 +19,28 @@ def inject_age_variation_chain(df, seed=42):
     total_rows = len(df)
 
     # Step 1: Tambah proporsi 25–34 dari 18–24
-    if '25-34' not in current_counts or current_counts['25-34'] < int(total_rows * 0.1):
-        from_pool = df[df['Age'] == '18-24']
-        inject_n_25_34 = max(1, int(len(from_pool) * 0.05))  # 5% dari 18–24
-        sampled_index = from_pool.sample(n=inject_n_25_34, random_state=seed).index
-        df.loc[sampled_index, 'Age'] = '25-34'
-
-    # Recount
-    current_counts = df['Age'].value_counts()
+    from_pool = df[df['Age'] == '18-24']
+    if not from_pool.empty and ('25-34' not in current_counts or current_counts['25-34'] < int(total_rows * 0.1)):
+        inject_n_25_34 = max(1, int(len(from_pool) * 0.05))
+        if len(from_pool) >= inject_n_25_34:
+            sampled_index = from_pool.sample(n=inject_n_25_34, random_state=seed).index
+            df.loc[sampled_index, 'Age'] = '25-34'
 
     # Step 2: Tambah 35–44 dari 25–34
-    if '35-44' not in current_counts:
-        from_pool = df[df['Age'] == '25-34']
-        inject_n_35_44 = max(1, int(len(from_pool) * 0.05))  # 5% dari 25–34
-        sampled_index = from_pool.sample(n=inject_n_35_44, random_state=seed+1).index
-        df.loc[sampled_index, 'Age'] = '35-44'
-
-    # Recount lagi
-    current_counts = df['Age'].value_counts()
+    from_pool = df[df['Age'] == '25-34']
+    if not from_pool.empty and '35-44' not in current_counts:
+        inject_n_35_44 = max(1, int(len(from_pool) * 0.05))
+        if len(from_pool) >= inject_n_35_44:
+            sampled_index = from_pool.sample(n=inject_n_35_44, random_state=seed+1).index
+            df.loc[sampled_index, 'Age'] = '35-44'
 
     # Step 3: Tambah 45–54 dari 25–34
-    if '45-54' not in current_counts:
-        from_pool = df[df['Age'] == '25-34']
-        inject_n_45_54 = max(1, int(len(from_pool) * 0.03))  # 3% dari 25–34
-        sampled_index = from_pool.sample(n=inject_n_45_54, random_state=seed+2).index
-        df.loc[sampled_index, 'Age'] = '45-54'
+    from_pool = df[df['Age'] == '25-34']
+    if not from_pool.empty and '45-54' not in current_counts:
+        inject_n_45_54 = max(1, int(len(from_pool) * 0.03))
+        if len(from_pool) >= inject_n_45_54:
+            sampled_index = from_pool.sample(n=inject_n_45_54, random_state=seed+2).index
+            df.loc[sampled_index, 'Age'] = '45-54'
 
     return df
 
@@ -78,55 +75,81 @@ def estimate_cost(prompt_tokens, completion_tokens, price_input=0.150, price_out
 # Setup OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+def truncate(text, max_length=300):
+    if isinstance(text, str):
+        return text[:max_length] + "..." if len(text) > max_length else text
+    return ""
+
 # Define a function to predict age based on content
-def predict_age(row, usage_tracker=None):
-    # Only predict if 'Age' is empty
-    if pd.notna(row['Age']):
-        return None
+def predict_age_and_interest(row, usage_tracker=None):
+    if pd.notna(row['Age']) and pd.notna(row.get('Interest')):
+        return pd.Series([None, None])
 
-    # Construct the OpenAI prompt based on the extracted text
-    # Construct the prompt with the details from the row
     prompt = f"""
-        I want to predict the age of the author based on the following details:
-        Campaigns: {row['Campaigns']}
-        Channel: {row['Channel']}
-        Title: {row['Title']}
-        Content: {row['Content']}
-        Gender: {row['Gender']}
-        Location: {row['Location']}
-        Issue: {row['Issue']}
-        Sub Issue: {row['Sub Issue']}
-        Topic Extraction: {row['Topic Extraction']}
+    You are an assistant that analyzes short user-generated content and identifies the user's most likely interest.
 
-        Choose the most likely age group: 18-24, 25-34, 35-44, 45-54, 55+.
-        Please reply with only one age group.
+    Based on the following post details, please predict the user's **age group** and **most relevant interest**.
 
-        Note: While most users fall into 18–24 and 25–34, you must ensure at least a few cases (around 3–5%) are predicted as 35–44 or 45–54 when appropriate, such as when the content is mature, formal, or reflective.
-        """
+    Details:
+    Campaigns: {row['Campaigns']}
+    Channel: {row['Channel']}
+    Title: {row['Title']}
+    Content: {truncate(row['Content'])}
+    Gender: {row['Gender']}
+    Location: {row['Location']}
+    Issue: {row['Issue']}
+    Sub Issue: {row['Sub Issue']}
+    Topic Extraction: {truncate(row['Topic Extraction'])}
+
+    Please respond in **this exact format** (without additional explanations):
+
+    Age Group: [choose from 13-17, 18-24, 25-34, 35-44, 45-54, 55+]
+    Confidence: [percent from 0 to 100]
+    Interest: [brief but descriptive interest category like 'street food exploration', 'youth fashion trends', 'financial literacy', 'digital activism', 'celebrity gossip', 'environmental awareness', 'mental health discussion', 'automotive modifications', etc. Avoid vague or generic terms like 'food', 'health', 'fashion', or 'unknown'.]
+    """
 
 
-    # Get the response from OpenAI model
+
     response = openai.ChatCompletion.create(
-        
-        model="gpt-4o-mini",  # You can change the model here if needed
+        model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are an assistant that predicts age based on content."},
+            {"role": "system", "content": "You are an assistant that predicts age and interest based on user-generated content."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=50,
+        max_tokens=100,
         temperature=0.7
     )
 
-    # Track token usage
     if usage_tracker is not None:
-            usage_tracker['prompt_tokens'] += response['usage']['prompt_tokens']
-            usage_tracker['completion_tokens'] += response['usage']['completion_tokens']
-        
+        usage_tracker['prompt_tokens'] += response['usage']['prompt_tokens']
+        usage_tracker['completion_tokens'] += response['usage']['completion_tokens']
 
-    # Extract the predicted age from the response
-    predicted_age = response['choices'][0]['message']['content'].strip()
 
-    return predicted_age
+    result_text = response['choices'][0]['message']['content'].strip()
+
+    # Regex extraction
+    match = re.search(
+        r"Age\s*Group:\s*(\d{2}-\d{2}|\d{2}\+).*?Confidence:\s*(\d+).*?Interest:\s*(.+)",
+        result_text,
+        re.IGNORECASE | re.DOTALL
+    )
+
+    if match:
+        age_group = match.group(1)
+        confidence = int(match.group(2))
+        interest = match.group(3).strip()
+
+        # Tetap simpan Interest meskipun age confidence rendah
+        final_interest = interest if interest.lower() not in ["", "unknown", "none"] else None
+
+        if confidence >= 80:
+            return pd.Series([age_group, final_interest])
+        else:
+            return pd.Series([None, final_interest])
+
+    return pd.Series([None, None])
+
+
 
 # Load the model and vectorizer
 class GenderPredictor:
@@ -170,6 +193,10 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
 
     # List of required columns
     required_columns = ['Channel', 'Campaigns', 'Title', 'Content', 'Gender', 'Location', 'Age', 'Issue', 'Sub Issue', 'Topic Extraction']
+
+    # Tambahkan ini jika belum ada
+    if 'Interest' not in df.columns:
+        df['Interest'] = ''
 
     # Check if required columns exist, if not, create them
     for col in required_columns:
@@ -296,7 +323,7 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
                 author_lower = author_name.lower()
                 if not any(keyword in author_lower for keyword in media_keywords):
                     gender, probability = predictor.predict(author_name)
-                    if probability > 60:
+                    if probability >= 80:
                         df.at[index, 'Gender'] = gender
 
 
@@ -305,13 +332,22 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
         if apply_location and (pd.isna(row['Location']) or row['Location'] in ['', 'nan']):
             content = str(row.get('Content', '')).lower()
             found_location = None
+            imbuhan_prefixes = ["di", "ke", "dari", "pada", "menuju", "sekitar", "di sekitar", "wilayah"]
+
+            pattern_template = r"\b(?:{})\s+{}(?:\b|$)"
+
             for city, variations in locations_mapping.items():
                 for variation in variations:
-                    if variation in content:
-                        found_location = city
+                    for prefix in imbuhan_prefixes:
+                        pattern = pattern_template.format(prefix, re.escape(variation.lower()))
+                        if re.search(pattern, content):
+                            found_location = city
+                            break
+                    if found_location:
                         break
                 if found_location:
                     break
+
             if found_location:
                 df.at[index, 'Location'] = found_location
                 location_method_2_count += 1
@@ -336,12 +372,22 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
         ]
 
         usage_tracker = {'prompt_tokens': 0, 'completion_tokens': 0}
-        # Apply the prediction function to the rows that need prediction
-        df_to_predict['Predicted_Age'] = df_to_predict.apply(predict_age, axis=1, usage_tracker=usage_tracker)
-        # Update the original dataframe with the predicted ages
-        df.update(df_to_predict[['Predicted_Age']])
-        # Now update the "Age" column with the predicted ages
+
+
+        df_to_predict[['Predicted_Age', 'Predicted_Interest']] = df_to_predict.apply(
+            predict_age_and_interest,
+            axis=1,
+            result_type="expand",
+            usage_tracker=usage_tracker
+        )
+
+        df.update(df_to_predict[['Predicted_Age', 'Predicted_Interest']])
         df['Age'] = df_to_predict['Predicted_Age']
+        df['Interest'] = df_to_predict['Predicted_Interest']
+
+
+
+
         df = inject_age_variation_chain(df)  # inject age supaya balance hasilnya
 
         # Estimasi biaya
@@ -445,6 +491,26 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
         st.write("### Age Distribution:")
         for age_group, percentage in age_percentage.items():
             st.write(f"{age_group}: {percentage}%")
+
+
+    # Top 10 Interest
+    if apply_age:
+        st.write("### 🔍 Top 10 Interests:")
+        #st.write("Raw interest counts:")
+        #st.write(df['Interest'].value_counts(dropna=True))
+        # Normalisasi interest jadi lowercase dan strip spasi sebelum dihitung
+        top_interests = (
+            df['Interest']
+            .dropna()
+            .apply(lambda x: x.strip().lower())
+            .value_counts()
+            .head(10)
+        )
+
+        for i, (interest, count) in enumerate(top_interests.items(), 1):
+            st.write(f"{i}. {interest} — {count} data")
+
+
 
     # Top 10 Locations
     if apply_location:
