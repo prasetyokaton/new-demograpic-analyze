@@ -233,13 +233,8 @@ if uploaded_file is not None and any([apply_gender, apply_age, apply_location]):
 
 
 
-
-
-
-
-
     # --- LOAD REFERENSI MEDIA UNTUK ONLINE MEDIA ---
-    media_ref_path = "Media/DXID - Mainstream Media List - update May 2, 2025 - Insights Copy.xlsx"
+    media_ref_path = "Media/new_DXID - Mainstream Media List - update May 2, 2025.xlsx"
     media_ref_df = pd.read_excel(media_ref_path, sheet_name="Online with AVE - Updated")
 
     # Normalisasi media name dan area
